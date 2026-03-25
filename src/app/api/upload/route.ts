@@ -3,7 +3,6 @@ import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import mammoth from "mammoth";
-import { metadata } from "@/app/layout";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!;
@@ -31,6 +30,7 @@ const extractTextFromFile = async (file: File): Promise<string> => {
   if (fileName.endsWith(".pdf")) {
     const PDFParser = (await import("pdf2json")).default;
     return new Promise((resolve, reject) => {
+      // (pdf2json을 이용한 PDF 텍스트 파싱 로직)
       const pdfParser = new (PDFParser as any)(null, true);
       //parser error
       pdfParser.on("pdfParser_dataError", (err: any) =>
@@ -57,6 +57,7 @@ const extractTextFromFile = async (file: File): Promise<string> => {
     });
   } else if (fileName.endsWith(".docx")) {
     const result = await mammoth.extractRawText({ buffer });
+    // (mammoth를 이용해 Word 문서 텍스트 추출)
     return result.value;
   } else if (fileName.endsWith(".txt")) {
     return buffer.toString("utf-8");

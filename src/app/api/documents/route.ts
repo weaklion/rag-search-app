@@ -14,8 +14,8 @@ export async function GET(req: Request) {
     const file = reqUrl.searchParams.get("file") === "true";
     const view = reqUrl.searchParams.get("view") === "true";
 
-    // Handle file download/view
     if (id && file) {
+      // 1. DB에서 문서의 메타데이터(파일 경로, 파일명 등)를 조회
       const { data: documents } = await supabase
         .from("documents")
         .select("metadata")
@@ -35,6 +35,7 @@ export async function GET(req: Request) {
       const filePath =
         meta?.file_path || `${id}.${fileName.split(".").pop() || "pdf"}`;
 
+      // 2. Storage에서 실제 파일 버퍼 다운로드
       const { data: fileData, error: downloadError } =
         await supabaseStorage.storage.from("documents").download(filePath);
 
@@ -52,6 +53,7 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: "File is empty" }, { status: 500 });
       }
 
+      // 3. 응답에 파일 끼워넣기
       const isPDF =
         fileType === "application/pdf" ||
         fileName.toLowerCase().endsWith(".pdf");
@@ -60,21 +62,20 @@ export async function GET(req: Request) {
           "Content-type": fileType,
           "Content-Disposition":
             view && isPDF
-              ? `inline; filename="${fileName}"`
-              : `attachment; filename="${fileName}"`,
+              ? `inline; filename="${fileName}"` // 브라우저 창에서 바로 열기
+              : `attachment; filename="${fileName}"`, // 파일로 다운로드하기
           "Content-Length": buffer.length.toString(),
           ...(view && isPDF ? { "X-Content-Type-Options": "nosniff" } : {}),
         },
       });
     }
 
-    // Get single document with text content
     if (id) {
       const { data: chunks, error } = await supabase
         .from("documents")
         .select("content, metadata")
         .eq("metadata->>document_id", id)
-        .order("metadata->>chunk_index", { ascending: true });
+        .order("metadata->>chunk_index", { ascending: true }); // 나뉜 순서대로 정렬
 
       if (error || !chunks || chunks.length === 0) {
         return NextResponse.json(
@@ -92,13 +93,12 @@ export async function GET(req: Request) {
         file_size: m.file_size || 0,
         upload_date: m.upload_date || new Date().toISOString(),
         total_chunks: chunks.length,
-        fullText: chunks.map((c: any) => c.content).join("\n\n"),
+        fullText: chunks.map((c: any) => c.content).join("\n\n"), // 쪼개졌던 텍스트들을 다시 조립
         file_url: m.file_url,
         file_path: m.file_path,
       });
     }
 
-    // List all documents
     const { data: documents, error } = await supabase
       .from("documents")
       .select("metadata");
@@ -107,13 +107,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Deduplicate documents by document_id
-    // Since each document is split into multiple chunks, we need to group them
-    // Deduplicate documents by document_id
-    // Since each document is split into multiple chunks, we need to group them
     const map = new Map();
     documents?.forEach((doc: any) => {
       const m = doc.metadata;
+      // 여러 개의 텍스트 청크(Chunk) 레코드 중복 제거
       if (m?.document_id && !map.has(m.document_id)) {
         map.set(m.document_id, {
           id: m.document_id,
@@ -150,13 +147,15 @@ export async function DELETE(req: Request) {
       .eq("metadata->>document_id", id)
       .limit(1);
 
+    // 1. 해당 문서의 파일 경로 찾기
     const filePath = docs?.[0]?.metadata?.file_path;
 
-    // Delete file from storage
+    // 2. Storage 버킷에서 원본 파일 삭제
+
     if (filePath) {
       await supabaseStorage.storage.from("documents").remove([filePath]);
     }
-
+    // 3. Database에서 관련된 모든 텍스트 청크 및 메타데이터 삭제
     const { error } = await supabase
       .from("documents")
       .delete()
